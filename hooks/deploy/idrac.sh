@@ -1,15 +1,14 @@
 #!/usr/bin/env sh
-# Usage:
-
-## put this script in the deploy/ directory in the acme.sh USER
-
-#export DEPLOY_IDRAC_HOST="HOST"
-#export DEPLOY_IDRAC_PASS="PASSWORD"
-#export DEPLOY_IDRAC_USER="USER"
-
-## Issue the cert, I use CF
+# idrac.sh Usage:
+#
+# Put this script in /hooks/deploy/idrac.sh (which overlays into /acmebin/deploy/idrac.sh)
+#
+# export DEPLOY_IDRAC_HOST="HOST"
+# export DEPLOY_IDRAC_PASS="PASSWORD"
+# export DEPLOY_IDRAC_USER="USER"
+#
 # acme.sh --issue --dns dns_cf -d "HOST" -k 2048
-# acme.sh --deploy -d "HOST"  --deploy-hook idrac
+# acme.sh --deploy -d "HOST" --deploy-hook idrac
 
 idrac_deploy() {
 	_cdomain="$1"
@@ -30,14 +29,14 @@ idrac_deploy() {
 
 	if [ -z "$Le_Deploy_idrac_user" ] || [ -z "$Le_Deploy_idrac_pass" ] || [ -z "$Le_Deploy_idrac_host" ]; then
 		if [ -z "$DEPLOY_IDRAC_USER" ] || [ -z "$DEPLOY_IDRAC_PASS" ] || [ -z "$DEPLOY_IDRAC_HOST" ]; then
-				_err "Both deployment configuration and environment variables are missing. Please set them."
-				_err "Usage examples:"
-				_err "export DEPLOY_IDRAC_HOST=\"HOST\""
-				_err "export DEPLOY_IDRAC_PASS=\"PASSWORD\""
-				_err "export DEPLOY_IDRAC_USER=\"USER\""
-				_err "acme.sh --issue --dns dns_cf -d \"HOST\" -k 2048"
-				_err "acme.sh --deploy -d \"HOST\"  --deploy-hook idrac"
-				return 1
+			_err "Both deployment configuration and environment variables are missing. Please set them."
+			_err "Usage examples:"
+			_err "export DEPLOY_IDRAC_HOST=\"HOST\""
+			_err "export DEPLOY_IDRAC_PASS=\"PASSWORD\""
+			_err "export DEPLOY_IDRAC_USER=\"USER\""
+			_err "acme.sh --issue --dns dns_cf -d \"HOST\" -k 2048"
+			_err "acme.sh --deploy -d \"HOST\" --deploy-hook idrac"
+			return 1
 		else
 			Le_Deploy_idrac_user="$DEPLOY_IDRAC_USER"
 			Le_Deploy_idrac_pass="$DEPLOY_IDRAC_PASS"
@@ -48,30 +47,34 @@ idrac_deploy() {
 		fi
 	fi
 
+	# Ensure Dell RACADM shared libraries remain resolvable inside subshells
+	export LD_LIBRARY_PATH="${LD_LIBRARY_PATH:-/opt/dell/srvadmin/lib64:/usr/lib64:/usr/lib:/lib}"
+
 	_info "Starting iDRAC deployment"
 	_debug2 Le_Deploy_idrac_user "$Le_Deploy_idrac_user"
-	_debug2 Le_Deploy_idrac_pass "$Le_Deploy_idrac_pass"
 	_debug2 Le_Deploy_idrac_host "$Le_Deploy_idrac_host"
 
 	_info "Uploading SSL key to $Le_Deploy_idrac_host"
-	if [ ! "$(racadm -r "$Le_Deploy_idrac_host" -u "$Le_Deploy_idrac_user" -p "$Le_Deploy_idrac_pass" sslkeyupload -t 1 -f "$_ckey")" ]; then
-		_err "Failed to upload SSL key."
+	if ! _out=$(racadm --nocertwarn -r "$Le_Deploy_idrac_host" -u "$Le_Deploy_idrac_user" -p "$Le_Deploy_idrac_pass" sslkeyupload -t 1 -f "$_ckey" 2>&1); then
+		_err "Failed to upload SSL key: $_out"
 		return 1
 	fi
+	_debug "$_out"
 
 	_info "Uploading SSL certificate to $Le_Deploy_idrac_host"
-	if [ ! "$(racadm -r "$Le_Deploy_idrac_host" -u "$Le_Deploy_idrac_user" -p "$Le_Deploy_idrac_pass" sslcertupload -t 1 -f "$_cfullchain")" ]; then
-		_err "Failed to upload SSL certificate."
+	if ! _out=$(racadm --nocertwarn -r "$Le_Deploy_idrac_host" -u "$Le_Deploy_idrac_user" -p "$Le_Deploy_idrac_pass" sslcertupload -t 1 -f "$_cfullchain" 2>&1); then
+		_err "Failed to upload SSL certificate: $_out"
 		return 1
 	fi
+	_debug "$_out"
 
 	_info "Resetting iDRAC on $Le_Deploy_idrac_host"
-	if [ ! "$(racadm -r "$Le_Deploy_idrac_host" -u "$Le_Deploy_idrac_user" -p "$Le_Deploy_idrac_pass" racreset)" ]; then
-		_err "Failed to reset iDRAC."
+	if ! _out=$(racadm --nocertwarn -r "$Le_Deploy_idrac_host" -u "$Le_Deploy_idrac_user" -p "$Le_Deploy_idrac_pass" racreset 2>&1); then
+		_err "Failed to reset iDRAC: $_out"
 		return 1
 	fi
+	_debug "$_out"
 
 	_info "iDRAC deployment finished successfully"
 	return 0
-
 }

@@ -1,17 +1,15 @@
 services:
   acme-sh:
-    image: nicat23/idracadm7:v5
+    image: nicat23/idrac-acme.sh:v6
+    build:
+      context: .
     container_name: acme.sh
+    user: "1000:1000"
+    command: daemon
+    environment:
+      - TZ=America/Chicago
     volumes:
       - ./certs:/certs
       - ./hooks:/hooks
       - ./config:/acme.sh
-    command: daemon
-    stdin_open: true
-    tty: true
-    restart: always
-    networks:
-      - proxy
-networks:
-  proxy:
-    external: true
+    restart: unless-stopped

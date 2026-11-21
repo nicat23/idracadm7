@@ -1,5 +1,20 @@
+# Development and local artifacts
 dev/
+certs/
+config/
+.vscode/
+
+# Git and source control
+.git/
 .gitignore
+
+# Build and compose files (not needed in image)
 Dockerfile
 .dockerignore
 docker-compose.yml
+
+# Documentation
+README.md
+
+# CI/CD (not needed in image)
+.github/
