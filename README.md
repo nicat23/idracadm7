@@ -106,7 +106,7 @@ docket exec -t acme.sh racadm -r 192.168.1.100 -u root -p password racreset
 ## Environment Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| ---------- | --------- | ------------- |
 | `LE_WORKING_DIR` | `/acmebin` | ACME.sh binary directory |
 | `LE_CONFIG_HOME` | `/acme.sh` | ACME.sh configuration directory |
 | `LE_CERT_HOME` | `/certs` | Directory for generated certificates |
@@ -187,6 +187,7 @@ services:
 ```
 
 **Notable Changes:**
+
 - Updated to `v6` image tag with enhanced features
 - Now includes build context configuration for local builds
 - Uses non-root user `1000:1000` for improved security
@@ -228,6 +229,7 @@ docker build --build-arg ACME_VERSION=3.1.0 --build-arg AUTO_UPGRADE=1 -t nicat2
 ### Security and Optimization
 
 Recent updates include:
+
 - **Wolfi-based runtime**: Chainguard Wolfi minimal distribution with 0 known CVEs and reduced attack surface
 - **Multi-stage build**: Separates Dell RACADM compilation (RHEL 9) from lightweight Wolfi runtime
 - **Non-root execution**: Container runs as the `acme` user (UID 1000, GID 1000) for enhanced security
