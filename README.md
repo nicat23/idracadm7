@@ -1,10 +1,10 @@
 # ACME.sh with Dell iDRAC Support
 
-A containerized version of the popular ACME.sh SSL certificate management tool with integrated Dell iDRAC support for enterprise server environments.
+A containerized version of the popular ACME.sh SSL certificate management tool with integrated Dell iDRAC support for enterprise server environments. This image includes Dell's `racadm` utility for seamless iDRAC certificate management and automation, built on a minimal Wolfi base image for security and efficiency.
 
 ## About
 
-This Docker image combines the power of [acme.sh](https://github.com/acmesh-official/acme.sh) - a pure Unix shell script implementing the ACME client protocol - with Dell iDRAC management capabilities. It's designed for enterprise environments where SSL certificates need to be automatically deployed to Dell servers via iDRAC.
+This Docker image combines the power of [acme.sh](https://github.com/acmesh-official/acme.sh) - a pure Unix shell script implementing the ACME client protocol - with Dell iDRAC management capabilities. It's designed for enterprise environments where SSL certificates need to be automatically deployed to Dell servers via iDRAC. The image is built on `nicat23/racadm:latest`, a Wolfi-based minimal image (0 CVEs) that includes Dell Server Administrator tools and the racadm CLI utility.
 
 ## Credits
 
@@ -21,7 +21,8 @@ This Docker image combines the power of [acme.sh](https://github.com/acmesh-offi
 - ✅ Support for multiple DNS providers and deployment hooks
 - ✅ Automatic certificate renewal via cron
 - ✅ Custom deploy, DNS API, and notification scripts support
-- ✅ Based on Alpine Linux for minimal footprint
+- ✅ Built on Wolfi (Chainguard) for minimal footprint and zero known CVEs
+- ✅ Non-root execution for enhanced security
 
 ## Quick Start
 
@@ -106,11 +107,16 @@ docket exec -t acme.sh racadm -r 192.168.1.100 -u root -p password racreset
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LE_CONFIG_HOME` | `/acme.sh` | ACME.sh configuration directory. It is recommended to use `/config` for persistent storage. |
-| `AUTO_UPGRADE` | `1` | Enable automatic acme.sh upgrades |
+| `LE_WORKING_DIR` | `/acmebin` | ACME.sh binary directory |
+| `LE_CONFIG_HOME` | `/acme.sh` | ACME.sh configuration directory |
+| `LE_CERT_HOME` | `/certs` | Directory for generated certificates |
+| `HOME` | `/acme.sh` | Home directory for the acme user |
+| `AUTO_UPGRADE` | `0` | Enable automatic acme.sh upgrades (0 = disabled, 1 = enabled) |
+| `PAGER` | `cat` | Disable pager for text output |
 | `DEPLOY_IDRAC_HOST` | - | iDRAC IP address or hostname for deploy hook |
 | `DEPLOY_IDRAC_USER` | - | iDRAC username for deploy hook |
 | `DEPLOY_IDRAC_PASS` | - | iDRAC password for deploy hook |
+| `TZ` | - | Timezone (e.g., `America/Chicago`, `UTC`) |
 
 ## Configuration
 
@@ -118,19 +124,21 @@ This container is designed to be configured through volume mounts, allowing you 
 
 ### Directory Structure
 
-- `/acme.sh`: The installation directory for the `acme.sh` script itself.
-- `/config`: Persistent storage for `acme.sh` configuration files. Your `account.conf` and other settings will be stored here.
-- `/certs`:  The output directory for your generated SSL certificates.
-- `/hooks`:  A directory for your custom scripts. You can mount your own scripts here, which will be used by `acme.sh`.
+- `/acmebin`: The installation/binary directory for the `acme.sh` script itself.
+- `/acme.sh`: Persistent storage for `acme.sh` configuration files. Your `account.conf`, `crontab`, and other settings will be stored here.
+- `/certs`: The output directory for your generated SSL certificates.
+- `/hooks`: A directory for your custom scripts. You can mount your own scripts here, which will be used by `acme.sh`.
   - `/hooks/deploy`: For custom deploy hooks.
   - `/hooks/dnsapi`: For custom DNS API handlers.
   - `/hooks/notify`: For custom notification scripts.
 
+### User and Permissions
+
+The container runs as the non-root `acme` user (UID 1000, GID 1000) for enhanced security. All volumes should be accessible by this user. When using the image, ensure volume mounts have appropriate permissions for the acme user.
+
 ## Custom Script Structure
 
-The image has been customized to support a more modular and extensible structure. This includes a custom `idrac.sh` deploy script, an `overlay.sh` for logic, and a separate `entry.sh` script.
-
-The custom script structure within the project is as follows:
+The image is designed with a modular and extensible architecture:
 
 ```text
 ├─ hooks
@@ -143,31 +151,48 @@ The custom script structure within the project is as follows:
 └─ entry.sh
 ```
 
-- **`hooks/deploy/idrac.sh`**: The custom deployment hook for Dell iDRAC servers.
-- **`init/overlay.sh`**: A script for overlaying custom logic or files at container startup.
-- **`entry.sh`**: The main entrypoint script for the container.
+- **`hooks/deploy/idrac.sh`**: The custom deployment hook for Dell iDRAC servers, automatically copied into the acme.sh environment.
+- **`init/overlay.sh`**: A startup script that copies custom hooks from `/hooks` into the acme.sh directories during container initialization.
+- **`entry.sh`**: The main entrypoint script for the container that manages startup logic and command routing.
+
+### Startup and Initialization
+
+When the container starts:
+
+1. **Overlay Setup**: `overlay.sh` scans the `/hooks` directory for custom scripts (`deploy`, `dnsapi`, `notify`) and copies them into the acme.sh environment.
+2. **Crontab Generation**: If running in `daemon` mode without an existing crontab, one is automatically generated with randomized timing to prevent thundering herd scenarios.
+3. **Command Routing**: The entry.sh script routes commands appropriately:
+   - `daemon`: Starts the Supercronic daemon for automated certificate renewals
+   - `--<acme.sh flag>`: Passes directly to acme.sh with proper configuration
+   - Other commands: Executed as-is (e.g., `racadm`, shell commands)
 
 ## Docker Compose Example
 
 ```yaml
 services:
   acme-sh:
-    image: nicat23/idracadm7:v4
+    image: nicat23/idrac-acme.sh:v6
+    build:
+      context: .
     container_name: acme.sh
+    user: "1000:1000"
+    command: daemon
+    environment:
+      - TZ=America/Chicago
     volumes:
       - ./certs:/certs
       - ./hooks:/hooks
-      - ./config:/config
-    command: daemon
-    stdin_open: true
-    tty: true
-    restart: always
-    networks:
-      - proxy
-networks:
-  proxy:
-    external: true
+      - ./config:/acme.sh
+    restart: unless-stopped
 ```
+
+**Notable Changes:**
+- Updated to `v6` image tag with enhanced features
+- Now includes build context configuration for local builds
+- Uses non-root user `1000:1000` for improved security
+- Changed volume mount from `/config` to `/acme.sh` for consistency with container paths
+- Uses `restart: unless-stopped` for better restart behavior
+- Added timezone environment variable support
 
 ## Building from Source
 
@@ -176,53 +201,49 @@ You can build the Docker image locally for development or customization purposes
 ### Build Command
 
 ```bash
-docker build -t nicat23/idracadm7 .
+docker build -t nicat23/idrac-acme.sh:v6 .
+```
+
+Or using docker-compose:
+
+```bash
+docker compose build
 ```
 
 ### Build-time Arguments
 
 The `Dockerfile` supports several build-time arguments (`ARG`) to customize the image:
 
-- `AUTO_UPGRADE`: Set to `1` to enable automatic upgrades of `acme.sh`, or `0` to disable.
-- `LE_WORKING_DIR`: The working directory for `acme.sh`.
-- `LE_CONFIG_HOME`: The directory for configuration files.
-- `LE_CERT_HOME`: The directory for certificates.
+- `ACME_VERSION`: Version of ACME.sh to install (default: `3.1.0`)
+- `AUTO_UPGRADE`: Set to `1` to enable automatic upgrades of `acme.sh`, or `0` to disable (default: `0`)
 
 You can customize these during the build process. For example:
 
 ```bash
-docker build --build-arg AUTO_UPGRADE=0 -t nicat23/idracadm7 .
+docker build --build-arg ACME_VERSION=3.1.0 --build-arg AUTO_UPGRADE=1 -t nicat23/idrac-acme.sh:v6 .
 ```
 
-These arguments are then set as environment variables (`ENV`) within the image.
+**Note:** The base image `nicat23/racadm:latest` is built on Chainguard Wolfi and includes Dell RACADM 11.4.0.0 compiled from RHEL 9 (x86-64-v2 compatible). See [nicat23/racadm](https://github.com/nicat23/racadm) for base image details.
 
-### Volume Mounts
+### Security and Optimization
 
-The volume mount points for configuration, certificates, and hooks can be customized in your `docker-compose.yml` or `docker run` commands to suit your environment.
+Recent updates include:
+- **Wolfi-based runtime**: Chainguard Wolfi minimal distribution with 0 known CVEs and reduced attack surface
+- **Multi-stage build**: Separates Dell RACADM compilation (RHEL 9) from lightweight Wolfi runtime
+- **Non-root execution**: Container runs as the `acme` user (UID 1000, GID 1000) for enhanced security
+- **Minimal dependencies**: Only essential packages included (ca-certificates, libstdc++, OpenSSL libraries)
+- **Line-ending handling**: CRLF line endings are automatically normalized for cross-platform compatibility
+- **Optimized for amd64**: Built specifically for x86-64-v2 architecture for compatibility
+- **CVE security**: Base images include latest security patches and are regularly updated
 
-### Script Logic
+## CI/CD and Automation
 
-The container uses `entry.sh` as its main entrypoint, which in turn can execute `overlay.sh` for initialization.
+This repository includes GitHub Actions workflows for automated image building and publishing:
 
-#### `entry.sh`
+- **`.github/workflows/build.yml`**: Main build workflow that constructs and publishes Docker images to container registries
+- **`.github/workflows/issue.yml`**: Automated issue handling workflow
 
-The `entry.sh` script is the primary script that runs when the container starts. Its logic is as follows:
-
-1. **Initialization Check**: It checks if essential configuration files (`account.conf`, `http.header`) exist in the `/config` directory. If not, it runs `acme.sh --upgrade` to create them.
-2. **Overlay Execution**: It looks for an `overlay.sh` script in the `/init` directory. If found, it executes it, which links any custom scripts from the `/hooks` volume into their respective directories in `/acme.sh`.
-3. **Command Execution**: It inspects the command passed to the container:
-    - If the command is `daemon`, it starts the cron daemon to handle automated renewals.
-    - If the command is `racadm`, it executes Dell's `racadm` utility with the provided arguments.
-    - Otherwise, it executes the command as-is, which is typically an `acme.sh` command.
-
-#### `overlay.sh`
-
-The `overlay.sh` script is responsible for integrating custom user scripts into the `acme.sh` environment. It works as follows:
-
-1. **Scan for Hooks**: It scans the `/hooks` directory for subdirectories named `deploy`, `dnsapi`, and `notify`.
-2. **Link Scripts**: If any of these directories are found, it iterates through the `.sh` files within them and creates symbolic links from your custom scripts to the corresponding `acme.sh` script directories (e.g., from `/hooks/deploy/my-hook.sh` to `/acme.sh/deploy/my-hook.sh`).
-
-This allows you to easily add and manage your own custom hooks by mounting them into the `/hooks` volume.
+The build workflow handles multi-platform builds and automatic image tagging, ensuring consistent deployment across different environments.
 
 ## Supported Platforms
 
